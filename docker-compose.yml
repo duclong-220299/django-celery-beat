@@ -1,0 +1,44 @@
+services:
+  web:
+    build: ./project
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - ./project/:/usr/src/app/
+    ports:
+      - 8080:8000
+    env_file:
+      - .env
+    environment:
+      - DEBUG=${DEBUG}
+      - SECRET_KEY=${SECRET_KEY}
+      - DJANGO_ALLOWED_HOSTS=${DJANGO_ALLOWED_HOSTS}
+    depends_on:
+      - redis
+  redis:
+    image: redis:alpine
+  celery:
+    build: ./project
+    env_file:
+      - .env
+    command: celery -A core worker -l info
+    volumes:
+      - ./project/:/usr/src/app/
+    environment:
+      - DEBUG=${DEBUG}
+      - SECRET_KEY=${SECRET_KEY}
+      - DJANGO_ALLOWED_HOSTS=${DJANGO_ALLOWED_HOSTS}
+    depends_on:
+      - redis
+  celery-beat:
+    build: ./project
+    env_file:
+      - .env
+    command: celery -A core beat -l info
+    volumes:
+      - ./project/:/usr/src/app/
+    environment:
+      - DEBUG=${DEBUG}
+      - SECRET_KEY=${SECRET_KEY}
+      - DJANGO_ALLOWED_HOSTS=${DJANGO_ALLOWED_HOSTS}
+    depends_on:
+      - redis
