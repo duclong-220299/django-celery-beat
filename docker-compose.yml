@@ -1,23 +1,62 @@
 services:
+  nginx-proxy:
+    image: jwilder/nginx-proxy
+    container_name: nginx-proxy-${APP_NAME}
+    ports:
+      - 80:80
+      - 443:443
+    security_opt:
+      - seccomp=unconfined
+      - apparmor=unconfined
+    privileged: true
+    environment:
+      - ENABLE_IPV6=true
+    volumes:
+      - ./nginx/vhosts:/etc/nginx/vhosts.d
+      - ./nginx/nginx-certs:/etc/nginx/certs:ro
+      - ./nginx/nginx-conf:/etc/nginx/conf.d
+      - ./nginx/logs:/var/log/nginx
+      - /usr/share/nginx/html
+      - /var/run/docker.sock:/tmp/docker.sock:ro
+    networks:
+      - server
+
   web:
     build: ./project
+    restart: always
+    container_name: web-${APP_NAME}
     command: python manage.py runserver 0.0.0.0:8000
+    ports:
+      - 8000:8000
     volumes:
       - ./project/:/usr/src/app/
-    ports:
-      - 8080:8000
     env_file:
       - .env
     environment:
       - DEBUG=${DEBUG}
       - SECRET_KEY=${SECRET_KEY}
       - DJANGO_ALLOWED_HOSTS=${DJANGO_ALLOWED_HOSTS}
+      - DB_HOST=${DB_HOST}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_PORT=${DB_PORT}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      # - VIRTUAL_HOST=duclong.ng
+      # - VIRTUAL_PORT=8000
+    entrypoint: /entrypoint.sh
     depends_on:
       - redis
-  redis:
-    image: redis:alpine
+      - db
+    networks:
+      - server
+
   celery:
     build: ./project
+    restart: always
+    container_name: celery-${APP_NAME}
     env_file:
       - .env
     command: celery -A core worker -l info
@@ -27,10 +66,25 @@ services:
       - DEBUG=${DEBUG}
       - SECRET_KEY=${SECRET_KEY}
       - DJANGO_ALLOWED_HOSTS=${DJANGO_ALLOWED_HOSTS}
+      - DB_HOST=${DB_HOST}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_PORT=${DB_PORT}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+    entrypoint: /entrypoint.sh
     depends_on:
       - redis
+      - db
+    networks:
+      - server
+    
   celery-beat:
     build: ./project
+    restart: always
+    container_name: celery-beat-${APP_NAME}
     env_file:
       - .env
     command: celery -A core beat -l info
@@ -40,5 +94,74 @@ services:
       - DEBUG=${DEBUG}
       - SECRET_KEY=${SECRET_KEY}
       - DJANGO_ALLOWED_HOSTS=${DJANGO_ALLOWED_HOSTS}
+      - DB_HOST=${DB_HOST}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_PORT=${DB_PORT}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+    entrypoint: /entrypoint.sh
     depends_on:
       - redis
+      - db
+    networks:
+      - server
+
+  redis:
+    image: redis
+    restart: always
+    container_name: redis-${APP_NAME}
+    env_file:
+      - .env
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+    command: redis-server --requirepass ${REDIS_PASSWORD}
+    networks:
+      - server
+
+  db:
+    image: postgres:12
+    restart: always
+    container_name: db-${APP_NAME}
+    volumes:
+      - postgres_data_volumes:/var/lib/postgresql/data
+    env_file:
+      - .env
+    environment:
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=${DB_NAME}
+      - COMPOSE_PROJECT_NAME=cache
+    networks:
+      - server
+      - postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  pgadmin:
+    image: dpage/pgadmin4
+    restart: always
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=admin@domain.com
+      - PGADMIN_DEFAULT_PASSWORD=admin
+    volumes:
+      - postgres_admin_volumes:/var/lib/pgadmin
+    ports:
+      - 9000:80
+    container_name: pgadmin-${APP_NAME}
+    networks:
+      - postgres
+
+networks:
+  server:
+  postgres:
+    driver: bridge
+
+volumes:
+  postgres_data_volumes:
+  postgres_admin_volumes:
